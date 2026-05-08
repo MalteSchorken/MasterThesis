@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Apr 27 15:36:47 2025
+
+@author: malte
+"""
+
 from csv import DictWriter
 from enum import Enum
 from glob import glob
@@ -14,6 +21,44 @@ class class_mode(Enum):
     INSTRUMENTS = 0
     PITCHES = 1
     COMBINED = 2
+    
+INSTRUMENT_MAP = {
+    # Saxophones
+    "AltoSax": "Saxophone",
+    "TenorSax": "Saxophone",
+    "Saxophone": "Saxophone",
+    
+    # Piano
+    "BrightPiano": "Piano",
+    "Piano": "Piano",
+    
+    # Bass / Double Bass
+    "DoubleBassArco": "Bass",
+    "DoubleBassPizz": "Bass",
+    "DoubleBass": "Bass",
+    "Bass": "Bass",
+    
+    # Electric Guitar
+    "ElectricGuitarClean": "ElectricGuitar",
+    "ElectricGuitarCrunch": "ElectricGuitar",
+    "ElectricGuitarLead": "ElectricGuitar",
+    "ElectricGuitar": "ElectricGuitar",
+    
+    # Jinghu
+    "Jinghu": "Jinghu",
+    "JinghuOperaviolin": "Jinghu",
+    
+    # Morin Khuur
+    "MorinKhuur": "MorinKhuur",
+    "MorinKhuurViolin": "MorinKhuur",
+    
+    # Organ
+    "OrganBass": "Organ",
+    "Organ": "Organ",
+}
+
+def normalize_instrument(instr: str) -> str:
+    return INSTRUMENT_MAP.get(instr, instr)
 
 def extract_instruments(individual:BaseIndividual):
     seen_instruments = []
@@ -36,7 +81,7 @@ def extract_samples(individual:BaseIndividual):
             seen_samples.append((sample.instrument, str(sample.pitch.value)))
     return seen_samples
 
-def jaccard_error(population:Population, annotations:dict, mode:class_mode) -> float:
+def jaccard_error(population:Population, annotations:dict, mode:class_mode=class_mode.COMBINED) -> float:
     """Iteratively calculates the jaccard error for each onset, then returns the mean.
 
     Parameters
@@ -64,10 +109,10 @@ def jaccard_error(population:Population, annotations:dict, mode:class_mode) -> f
                 annotated_features = [annotation[0] for annotation in annotations[time_onset]]
             case class_mode.PITCHES:
                 extracted_features = extract_pitches(individual)
-                annotated_features = [int(annotation[1].replace("+", "")) for annotation in annotations[time_onset]]
+                annotated_features = [int(annotation[1]) for annotation in annotations[time_onset]]
             case class_mode.COMBINED:
-                extracted_features = extract_samples(individual)
-                annotated_features = annotations[time_onset]
+                extracted_features = set((instr, int(pitch)) for instr, pitch in extract_samples(individual))
+                annotated_features = set((instr, int(pitch)) for instr, pitch in annotations[time_onset])
         intersection = [instrument for instrument in extracted_features if instrument in annotated_features]
         union = list(set(extracted_features) | set(annotated_features))
         false_positives = set(extracted_features).symmetric_difference(intersection)
@@ -92,7 +137,7 @@ def calc_jaccard_for_piece_approximation(experiment_name:str, save_to_csv:bool=F
         pop = Population.from_file(popfile)
         annotations = parse_arff(f'./audio/tiny_aam/annotations/{run_name}_onsets.arff')
         for time_onset in annotations:
-            [int(annotation[1].replace("+", "")) for annotation in annotations[time_onset]]
+            [int(annotation[1]) for annotation in annotations[time_onset]]
         j_i.append(jaccard_error(pop, annotations, class_mode.INSTRUMENTS))
         j_p.append(jaccard_error(pop, annotations, class_mode.PITCHES))
         j_ip.append(jaccard_error(pop, annotations, class_mode.COMBINED))
@@ -233,3 +278,78 @@ Errors:""")
         writer = DictWriter(f, fieldnames=field_names)
         writer.writerow(row)
         f.close()
+        
+        
+        
+def jaccard_error_GD_IGD(pop:Population, annotations:dict, mode:class_mode=class_mode.COMBINED,
+                         p:float=1, archive:bool=False) -> float:
+    """Iteratively calculates the jaccard error for each onset, then returns the mean.
+
+    Parameters
+    ----------
+    population : Population
+        candidate population.
+    annotations : dict
+        extracted annotations in style {onset: [(instrument1, pitch1), (instrument2, pitch2), ...]}
+    mode : class_mode
+        whether to calculate the error for instrument, pitch or combined approximation
+
+    Returns
+    -------
+    float
+        mean jaccard error across all onsets.
+    """
+    time_onsets = list(annotations.keys())
+    
+    # ---- Build reference set V ----
+    V = []
+    for t in time_onsets:
+        V.append(annotations[t])
+
+    # ---- Build population-induced set U ----
+    U = []
+    
+    if archive:
+        for i, onset in enumerate(pop.archive):
+            U.append(pop.archive[onset].individual)
+    else:     
+        for ind in pop.individuals:
+            U.append(ind)
+
+    N = len(U)
+    M = len(V)
+
+    # ---- Build pairwise distance matrix ----
+    D = np.zeros((N, M))
+
+    for i, u in enumerate(U):
+        for j, v in enumerate(V):
+            match mode:
+                case class_mode.INSTRUMENTS:
+                    extracted_features = [normalize_instrument(instr) for instr in extract_instruments(u)]
+                    annotated_features = [normalize_instrument(annotation[0]) for annotation in v]
+                case class_mode.PITCHES:
+                    extracted_features = extract_pitches(u)
+                    annotated_features = [int(annotation[1]) for annotation in v]
+                case class_mode.COMBINED:
+                    extracted_features = set(
+                        (normalize_instrument(instr), int(pitch))
+                        for instr, pitch in extract_samples(u)
+                    )
+                    annotated_features = set(
+                        (normalize_instrument(instr), int(pitch))
+                        for instr, pitch in v
+                    )
+            intersection = [instrument for instrument in extracted_features if instrument in annotated_features]
+            union = list(set(extracted_features) | set(annotated_features))
+            false_positives = set(extracted_features).symmetric_difference(intersection)
+            false_negatives = set(annotated_features).symmetric_difference(intersection)
+            D[i,j] = (len(false_positives) + len(false_negatives)) / len(union)
+
+    # ---- Standard GD ----
+    GD = (np.mean(np.min(D, axis=1)**p))**(1/p)
+
+    # ---- Standard IGD ----
+    IGD = (np.mean(np.min(D, axis=0)**p))**(1/p)
+
+    return GD, IGD

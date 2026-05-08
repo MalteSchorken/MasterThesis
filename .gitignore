@@ -1,0 +1,17 @@
+# Data
+.ropeproject/
+audio/
+experiments/
+instrument_distances/
+notebooks/.ipynb_checkpoints/
+
+# Others
+scan_imports.py
+run_ground_truth_exp.sh
+run_MOEA_aam.sh
+run_MOEA_exp.sh
+
+# Notebooks
+notebooks/Drums_Test.ipynb
+notebooks/Flatten_Populations.ipynb
+notebooks/test_wasserstein.ipynb

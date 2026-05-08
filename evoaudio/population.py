@@ -29,13 +29,20 @@ class Population:
         """
         for individual in self.individuals:
             for i, onset in enumerate(onsets):
-                if individual.fitness_per_onset[i] < self.archive.get(onset, BaseIndividual()).fitness:
-                    self.archive[onset] = ArchiveRecord(onset=onset, fitness=individual.fitness_per_onset[i], individual=individual)
-
+                vec = individual.fitness_per_onset[i]
+                score = float(np.sum(vec))
+                
+                if onset not in self.archive or score < self.archive[onset].score:
+                    self.archive[onset] = ArchiveRecord(
+                        onset=onset,
+                        fitness_vec=vec,
+                        individual=individual
+                    )
+                    
     def sort_individuals_by_fitness(self):
         """Sorts the list of individuals by fitness. Meant to only be done upon initialization. 
         """
-        self.individuals.sort(key=lambda item: item.fitness)
+        self.individuals.sort(key=lambda ind: sum(ind.fitness))
 
     def insert_individual(self, individual:BaseIndividual):
         """Inserts an individual into the population. 
@@ -47,13 +54,17 @@ class Population:
             An individual containing one or more samples and calculated fitness value.
         """
         # Insert individual
-        bisect.insort_left(self.individuals, individual, key=lambda item: item.fitness)
+        bisect.insort_left(self.individuals, individual, key=lambda item: sum(item.fitness))
         # Update record of best onset approximations
         for i, onset in enumerate(self.archive):
-            if individual.fitness_per_onset[i] < self.archive[onset].fitness:
+            vec = individual.fitness_per_onset[i]
+            score = float(np.sum(vec))
+            
+            if score < self.archive[onset].score:
+                self.archive[onset].fitness_vec = vec
+                self.archive[onset].score = score
                 self.archive[onset].individual = individual
-                self.archive[onset].fitness = individual.fitness_per_onset[i]
-
+                
     def remove_worst(self, n:int):
         """Removes the worst n individuals from the population.
         This method assumes that self.individuals is already sorted by fitness.
@@ -175,7 +186,8 @@ class Population:
             return obj
 
 class ArchiveRecord():
-    def __init__(self, onset:int, fitness:float=None, individual:BaseIndividual=None) -> None:
+    def __init__(self, onset: int, fitness_vec=None, individual=None):
         self.onset = onset
-        self.fitness = fitness
+        self.fitness_vec = fitness_vec  # vector of objectives
+        self.score = None if fitness_vec is None else float(np.sum(fitness_vec))
         self.individual = individual

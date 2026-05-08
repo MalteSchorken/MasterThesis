@@ -19,7 +19,8 @@ class Mutator:
                  l_bound:int=L_BOUND, u_bound:int=U_BOUND, 
                  sample_number_increase_p:list[float]=SAMPLE_NUMBER_INCREASE_P, 
                  pitch_shift_std:float=PITCH_SHIFT_STD, 
-                 choose_mutation_p:list[float]=CHOOSE_MUTATION_P):
+                 choose_mutation_p:list[float]=CHOOSE_MUTATION_P,
+                 rng: np.random.Generator | None = None):
         """Creates an instance of the Mutator class.
 
         Parameters
@@ -50,6 +51,7 @@ class Mutator:
         self.sample_number_increase_p = sample_number_increase_p
         self.pitch_shift_std = pitch_shift_std
         self.choose_mutation_p = choose_mutation_p
+        self.rng = rng #if rng is not None else np.random.default_rng()
 
     def mutate_individual(self, individual:BaseIndividual) -> BaseIndividual:
         """Mutates an individual with one or more of the available mutation operations.
@@ -67,16 +69,15 @@ class Mutator:
             Mutated individual.
         """
         # Draw number of mutation
-        n_mutations = int(np.clip(np.floor(np.random.normal(loc=0, scale=1) * self.alpha + self.beta), a_min=self.l_bound, a_max=self.u_bound))
-
+        n_mutations = int(np.clip(np.floor(self.rng.normal(loc=0, scale=1) * self.alpha + self.beta), a_min=self.l_bound, a_max=self.u_bound))
         for _ in range(n_mutations):
             # Decide which mutation to apply
-            mutation = np.random.choice([self.mutate_n_samples, self.mutate_instrument, self.mutate_pitch], p=self.choose_mutation_p)
+            mutation = self.rng.choice([self.mutate_n_samples, self.mutate_instrument, self.mutate_pitch], p=self.choose_mutation_p)
             # Apply mutation
             mutated_individual = mutation(individual)
             # Set recalc fitness flag
             mutated_individual.recalc_fitness = True
-            mutated_individual.abs_stft = None
+            #mutated_individual.abs_stft = None
         
         return mutated_individual
 
@@ -96,14 +97,14 @@ class Mutator:
         pre_mutation_n_samples = len(individual.samples)
         increase_probability = self.sample_number_increase_p[pre_mutation_n_samples - 1]
         # Increase or decrease number of samples
-        rnd = np.random.random()
+        rnd = self.rng.random()
         if rnd < increase_probability:
             # Add a sample
-            new_sample = self.sample_library.get_random_sample_uniform()
+            new_sample = self.sample_library.get_random_sample_uniform(self.rng)
             individual.samples.append(new_sample)
         else:
             # Remove a sample
-            idx = np.random.choice(pre_mutation_n_samples)
+            idx = self.rng.choice(pre_mutation_n_samples)
             individual.samples.pop(idx)
         return individual
 
@@ -128,11 +129,11 @@ class Mutator:
         pre_mutation_n_samples = len(individual.samples)
 
         # Choose one instrument
-        change_idx = np.random.choice(pre_mutation_n_samples)
+        change_idx = self.rng.choice(pre_mutation_n_samples)
         pitch = individual.samples[change_idx].pitch
 
         # Randomly change instrument and style uniformly
-        new_instrument, new_style = self.sample_library.get_random_instrument_for_pitch(pitch)
+        new_instrument, new_style = self.sample_library.get_random_instrument_for_pitch(pitch, self.rng)
         #new_style = self.sample_library.get_random_style_for_instrument(new_instrument)
 
         # See if old pitch exists for new instrument
@@ -161,12 +162,12 @@ class Mutator:
         pre_mutation_n_samples = len(individual.samples)
 
         # Choose one instrument
-        change_idx = np.random.choice(pre_mutation_n_samples)
+        change_idx = self.rng.choice(pre_mutation_n_samples)
         chosen_sample = individual.samples[change_idx]
         
         # Choose a new pitch
         #new_pitch = self.sample_library.get_random_pitch_for_instrument_uniform(chosen_sample.instrument, chosen_sample.style)
-        shift_by = np.floor(np.random.normal(loc=0, scale=self.pitch_shift_std))
+        shift_by = np.floor(self.rng.normal(loc=0, scale=self.pitch_shift_std))
         new_pitch = self.sample_library.get_shifted_pitch(chosen_sample.instrument, chosen_sample.style, chosen_sample.pitch, shift_by)
         individual.samples[change_idx] = self.sample_library.get_sample(chosen_sample.instrument, chosen_sample.style, new_pitch)
 

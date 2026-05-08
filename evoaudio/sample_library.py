@@ -1,5 +1,7 @@
 from glob import glob
 from typing import Union, Tuple
+from pathlib import Path
+import os
 
 import librosa
 import numpy as np
@@ -41,22 +43,25 @@ class SampleLibrary:
         # wav_files = [file for file in wav_files if "Drums" not in file]
         thread_map(self.load_file, wav_files, max_workers=n_threads, chunksize=len(wav_files)//n_threads//10, desc="Loading samples")
     
-    def load_file(self, path:str) -> None:
+    def load_file(self, path: str) -> None:
         """Loads a single sample file at path.
-
+    
         Parameters
         ----------
         path : str
             Path to the sample file.
         """
+        if os.name == "nt":  # Windows
+            path = path.replace("\\", "/")
+            
         y, sr = librosa.load(path)
-
+    
         # Get instrument name, style and note from file path
         instrument_name, tail = path.split(
             "StructuredSamples/")[1].split("/", maxsplit=1)
         style, tail = tail.split("/")[-2:]
         pitch_str = tail.split("_")[-1].split(".")[0].lower()
-
+    
         # Separate drum handling
         if instrument_name == "Drums":
             for hit in DrumHit:
@@ -65,9 +70,9 @@ class SampleLibrary:
                     break
         else:
             pitch = Pitch[pitch_str]
-
+    
         sample = BaseSample(instrument=instrument_name, style=style, pitch=pitch, y=y, sr=sr)
-
+    
         self._init_samples.append(sample)
 
     def load_samples_single_thread(self, path:str) -> None:
@@ -148,7 +153,7 @@ class SampleLibrary:
         except:
             raise KeyError()
 
-    def get_random_sample_uniform(self) -> BaseSample:
+    def get_random_sample_uniform(self, rng= None) -> BaseSample:
         """Gets a uniform random sample from the library. 
         Note: Instrument, style and pitch are drawn sequentially, 
         meaning that instruments or styles with more samples 
@@ -159,12 +164,22 @@ class SampleLibrary:
         BaseSample
             Uniformly drawn random sample from the library.
         """
-        instrument = np.random.choice(list(self.instruments.values()))
-        style = np.random.choice(list(instrument.styles))
-        pitch = np.random.choice(list(instrument.pitches[style]))
+        if rng is None:
+            rng = np.random.default_rng()
+        instrument = rng.choice(
+            sorted(self.instruments.values(), key=lambda i: i.name)
+        )
+    
+        style = rng.choice(
+            sorted(instrument.styles)
+        )
+    
+        pitch = rng.choice(
+            sorted(instrument.pitches[style])
+        )
         return self.get_sample(instrument.name, style, pitch)
 
-    def get_random_instrument_for_pitch(self, pitch:Union[Pitch, DrumHit]) -> Tuple[str, str]:
+    def get_random_instrument_for_pitch(self, pitch:Union[Pitch, DrumHit], rng= None) -> Tuple[str, str]:
         """Helper function to draw a random instrument that is valid for the provided pitch.
 
         Parameters
@@ -177,8 +192,10 @@ class SampleLibrary:
         Tuple[str, str]
             Name of the drawn instrument and style.
         """
-        idx = np.random.choice(len(self.known_instruments_by_pitch[pitch]))
-        return list(self.known_instruments_by_pitch[pitch])[idx]
+        if rng is None:
+            rng = np.random.default_rng()
+        idx = rng.choice(len(self.known_instruments_by_pitch[pitch]))
+        return sorted(self.known_instruments_by_pitch[pitch])[idx]
 
     def get_random_style_for_instrument(self, instrument_name:str) -> str:
         """Helper function to draw a random style for a provided instrument.
@@ -295,3 +312,6 @@ class SampleLibrary:
             Data object that holds information about the instrument
         """
         return self.instruments[instrument_name]
+    
+    def get_all_instruments(self):
+        return self.instruments

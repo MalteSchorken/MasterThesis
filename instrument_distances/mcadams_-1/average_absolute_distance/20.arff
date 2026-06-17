@@ -1,0 +1,10 @@
+% Distances between instruments for pitch 20 (G#0)
+@RELATION distances
+
+@ATTRIBUTE 'InstrumentId' NUMERIC
+@ATTRIBUTE 'Instrument' STRING
+@ATTRIBUTE 'StyleId' NUMERIC
+@ATTRIBUTE 'Distance to instrument 47 (Tuba), style 1' NUMERIC
+
+@DATA
+47,'Tuba',1,0.0
